@@ -26,11 +26,28 @@
 
 import pathlib
 
+from google.cloud import storage
+
 
 DATA_DIR = pathlib.Path(__file__).parent.parent / 'data'
 
-# TODO: Update this to your bucket name
-BUCKET_NAME = 'musa5090-s26-yourname-data'
+BUCKET_NAME = 'cc-s26-assignment-3-maynard-data'
+
+HOURLY_DIR = DATA_DIR / 'prepared' / 'hourly'
+
+# Map file extension to the format subfolder name
+FORMAT_SUBFOLDERS = {
+    '.csv':     'csv',
+    '.jsonl':   'jsonl',
+    '.parquet': 'parquet',
+}
+
+# Map file extension to the filename BigQuery will see inside the partition folder
+FORMAT_FILENAMES = {
+    '.csv':     'data.csv',
+    '.jsonl':   'data.jsonl',
+    '.parquet': 'data.parquet',
+}
 
 
 def upload_with_hive_partitioning():
@@ -45,7 +62,33 @@ def upload_with_hive_partitioning():
     The site locations files don't need hive partitioning (they're not
     date-partitioned), so you can re-upload them as-is or skip them.
     """
-    raise NotImplementedError("Implement this function to upload with hive partitioning.")
+    client = storage.Client()
+    bucket = client.bucket(BUCKET_NAME)
+
+    # Collect all hourly files (e.g. 2024-07-01.csv, 2024-07-01.jsonl, ...)
+    hourly_files = [f for f in HOURLY_DIR.iterdir() if f.is_file()]
+
+    if not hourly_files:
+        print('No hourly files found in data/prepared/hourly/ — nothing to upload.')
+        return
+
+    for local_path in sorted(hourly_files):
+        ext = local_path.suffix               
+        date_str = local_path.stem            
+
+        if ext not in FORMAT_SUBFOLDERS:
+            print(f'  Skipping unknown format: {local_path.name}')
+            continue
+
+        format_folder = FORMAT_SUBFOLDERS[ext]       
+        filename      = FORMAT_FILENAMES[ext]        
+
+        # gs://<bucket>/air_quality/hourly/csv/airnow_date=2024-07-01/data.csv
+        blob_name = f'air_quality/hourly/{format_folder}/airnow_date={date_str}/{filename}'
+
+        blob = bucket.blob(blob_name)
+        blob.upload_from_filename(local_path)
+        print(f'  Uploaded: {local_path.name} → gs://{BUCKET_NAME}/{blob_name}')
 
 
 if __name__ == '__main__':
